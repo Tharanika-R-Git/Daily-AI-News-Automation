@@ -1,0 +1,339 @@
+{
+  "name": "My workflow 3",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7,
+              "triggerAtMinute": 59
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "e456f1aa-7299-4522-98cd-7501ba1b88b2",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://export.arxiv.org/api/query?search_query=cat:cs.AI&sortBy=submittedDate&sortOrder=descending&max_results=5",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        208,
+        0
+      ],
+      "id": "5641029d-875a-4080-803c-a906bcf16611",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.xml",
+      "typeVersion": 1,
+      "position": [
+        416,
+        0
+      ],
+      "id": "d57c556d-4ef2-471f-a3d4-50fafd54602d",
+      "name": "XML"
+    },
+    {
+      "parameters": {
+        "jsCode": "const feed = $json.feed;\nif (!feed || !feed.entry) {\n  return [];\n}\n\nreturn feed.entry.map(e => {\n\n  // Normalize authors: always array\n  const authorsArray = Array.isArray(e.author) ? e.author : [e.author].filter(Boolean);\n\n  const authors = authorsArray\n    .map(a => (a.name?._ || a.name || \"\").trim())\n    .join(', ');\n\n  return {\n    source: \"arXiv\",\n    title: (e.title?._ || e.title || \"\").trim(),\n    summary: (e.summary?._ || e.summary || \"\").trim(),\n    link: (e.id?._ || e.id || \"\").trim(),\n    pdf: (Array.isArray(e.link) && e.link.find(l => l.title === \"pdf\")?.href) || \"\",\n    authors\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        0
+      ],
+      "id": "067d5b71-2271-41fe-ae1d-8b4430fbd713",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "url": "https://huggingface.co/api/models?&direction=-1&limit=5",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        832,
+        0
+      ],
+      "id": "af3d8d14-3fc1-46e1-9d4e-bc76c9ecdac3",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// input is an array of models (like your pasted JSON)\nconst items = $input.all();\n\n// ✅ remove duplicates by modelId\nconst seen = new Set();\n\nconst cleaned = items\n  .map(item => item.json)       // extract JSON payload\n  .filter(model => {\n    if (seen.has(model.modelId)) return false;\n    seen.add(model.modelId);\n    return true;\n  })\n  .map(model => {\n    return {\n      source: \"HuggingFace\",\n      title: model.modelId || model.id || \"Unknown model\",\n      pipeline: model.pipeline_tag || \"Unknown pipeline\",\n      createdAt: model.createdAt || \"\",\n      likes: model.likes || 0,\n      downloads: model.downloads || 0,\n      summary: (model.tags && model.tags.length > 0)\n        ? model.tags.slice(0, 3).join(\", \")  // short summary from tags\n        : \"No summary\",\n      link: `https://huggingface.co/${model.modelId}`\n    };\n  });\n\n// ✅ return as proper n8n items\nreturn cleaned.map(c => ({ json: c }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "3125498a-9025-451a-ac82-af2cb4441b4e",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        720,
+        192
+      ],
+      "id": "0db46bc2-bf33-4d0e-aac1-9cc447085d4b",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n\n  // Safely read nested structure\n  const content = item.json?.content;\n  const parts = content?.parts;\n\n  if (parts && Array.isArray(parts) && parts[0]?.text) {\n    results.push({\n      summary: parts[0].text.trim()\n    });\n  }\n}\n\nreturn results.map(r => ({ json: r }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1216,
+        0
+      ],
+      "id": "217f5295-6e57-4900-b6ba-08110a1e1c46",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all items coming in\nconst input = $items();\n\n// Extract \"summary\" from each item\nconst summaries = input.map(i => i.json.summary);\n\n// Combine all into one string\nconst combined = summaries.join(\"\\n\\n----------------------\\n\\n\");\n\n// Return as a single item\nreturn [\n  {\n    json: {\n      emailBody: combined\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        0
+      ],
+      "id": "9db118c1-0710-4d31-a581-ca86ab947f6b",
+      "name": "Code in JavaScript3"
+    },
+    {
+      "parameters": {
+        "jsCode": "let text = $json.emailBody;\n\n// Convert literal \"\\n\" into real new lines\ntext = text.replace(/\\\\n/g, '\\n');\n\n// Clean up spacing\ntext = text.replace(/----------------------/g, '\\n---\\n');\ntext = text.replace(/\\n{3,}/g, '\\n\\n');\ntext = text.replace(/##\\s?/g, '\\n<h2>');\ntext = text.replace(/\\*\\*(.*?)\\*\\*/g, '<b>$1</b>');\ntext = text.replace(/^- (.*)$/gm, '<li>$1</li>');\ntext = text.replace(/\\[(.*?)\\]\\((.*?)\\)/g, '<a href=\"$2\">$1</a>');\n\n// Convert lines to <p>\ntext = text\n  .split('\\n')\n  .map(line => {\n    if (line.startsWith('<h2>')) return line + '</h2>';\n    if (line.startsWith('<li>')) return line;\n    if (line.trim() === '') return '';\n    return `<p>${line}</p>`;\n  })\n  .join('\\n');\n\n// Wrap all <li> tags into <ul>\ntext = text.replace(/(<li>[\\s\\S]*?<\\/li>)/g, '<ul>$1</ul>');\n\nreturn {\n  formattedEmail: text\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        0
+      ],
+      "id": "dcc2ca0f-1f39-46a6-a921-48ce91116504",
+      "name": "Code in JavaScript4"
+    },
+    {
+      "parameters": {
+        "sendTo": "praneshmadhan646@gmail.com,  selvavelayutham395@gmail.com",
+        "subject": "Daily AI News",
+        "message": "={{ $json.formattedEmail }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1712,
+        0
+      ],
+      "id": "24d54fe2-494d-4320-aed3-7e8f17e75a16",
+      "name": "Send a message",
+      "webhookId": "dd34d848-8d99-45ee-a062-4240efb50ea0",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "PeN3DwFZNd7Ja3BM",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemma-3-27b-it",
+          "mode": "list",
+          "cachedResultName": "models/gemma-3-27b-it"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are an AI update assistant. Summarize the following new AI models and AI research papers clearly and concisely.\n\nFor each item:\n- Use web search to gain more data about model or paper\n- Mention whether it is a model or a paper\n- Provide the main idea, problem it solves and tech used in it in 4–5 lines\n- Add the link at the end\n- Use bullet points\n\nHere is the raw data:\n\n{{JSON.stringify($json)}}\n\nOutput format:\n- Give output in plain txt without \\n ** \n- Short and readable\n- Group into “🧠 New AI Research Papers” and “🤖 New AI Models”\n- Max 10 total bullet points"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        928,
+        192
+      ],
+      "id": "50580577-7aeb-4fcd-8037-6e539a2cba18",
+      "name": "Message a model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "KVoTUNqbxNIeZgDM",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "XML": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript4": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "329f1a08-60d8-47fa-b649-0f59c8ce4c7a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ea12fe8b5be1103d77c27b0da1089200a033ecbd3d79a066cbd5d36b160ac4ce"
+  },
+  "id": "erKvlmYWEzv16IUi",
+  "tags": []
+}
